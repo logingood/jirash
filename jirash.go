@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"os/user"
+	"runtime"
 	"strings"
 
 	"github.com/andygrunwald/go-jira"
@@ -15,8 +17,7 @@ import (
 )
 
 var (
-	app     = kingpin.New("jirashell", "A command-line jira tool")
-	jiraEnd = app.Flag("server", "End-point address.").Default("zendesk.atlassian.net").String()
+	app = kingpin.New("jirashell", "A command-line jira tool")
 
 	weekly     = app.Command("weekly", "Weekly report")
 	allTickets = app.Command("all", "All tickets")
@@ -30,12 +31,23 @@ var (
 )
 
 type Creds struct {
-	Login    string `json:"login"`
-	Password string `json:"password"`
+	Login     string `json:"login"`
+	Password  string `json:"password"`
+	ProjectId string `json:"projectid"`
+	IssueType string `json:"issuetype"`
+	Endpoint  string `json:"endpoint"`
 }
 
-func readCreds() (login string, pass string) {
+func readCreds() (login string, pass string, projectid string, issuetype, endpoint string) {
 	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter endpoint name, e.g. https://company.atlassian.net: ")
+	epoint, _ := reader.ReadString('\n')
+
+	fmt.Print("Enter Project ID (Operations - 11000): ")
+	project, _ := reader.ReadString('\n')
+	fmt.Print("Enter Issue Type (6 for OPS): ")
+	issue, _ := reader.ReadString('\n')
 
 	fmt.Print("Enter Username: ")
 	username, _ := reader.ReadString('\n')
@@ -45,9 +57,14 @@ func readCreds() (login string, pass string) {
 	if err != nil {
 		panic("Can not read password")
 	}
+
 	login = strings.TrimSpace(username)
 	pass = strings.TrimSpace(string(bytePassword))
-	return login, pass
+	projectid = strings.TrimSpace(project)
+	issuetype = strings.TrimSpace(issue)
+	endpoint = strings.TrimSpace(epoint)
+
+	return login, pass, projectid, issuetype, endpoint
 }
 
 func handle_error(err error) {
@@ -57,9 +74,9 @@ func handle_error(err error) {
 	}
 }
 
-func writeCreds() (login string, pass string) {
-	login, pass = readCreds()
-	creds := Creds{login, pass}
+func writeCreds() (login, pass, projectid, issuetype, endpoint string) {
+	login, pass, projectid, issuetype, endpoint = readCreds()
+	creds := Creds{login, pass, projectid, issuetype, endpoint}
 	b, err := json.Marshal(creds)
 	handle_error(err)
 
@@ -70,7 +87,7 @@ func writeCreds() (login string, pass string) {
 	err = ioutil.WriteFile(config, b, 0644)
 	handle_error(err)
 
-	return login, pass
+	return login, pass, projectid, issuetype, endpoint
 }
 
 func getCreds() (c Creds) {
@@ -82,28 +99,39 @@ func getCreds() (c Creds) {
 	return c
 }
 
-func jiraAuth() (jiraClient *jira.Client, login string) {
+func jiraAuth() (jiraClient *jira.Client, login, projectid, issuetype, endpoint string) {
 	usr, err := user.Current()
 	config := string(usr.HomeDir) + "/.jirashell.json"
 	var pass string
 	if _, err := os.Stat(config); os.IsNotExist(err) {
-		login, pass = writeCreds()
+		login, pass, projectid, issuetype, endpoint = writeCreds()
 	} else {
 		lpass := getCreds()
-		login, pass = lpass.Login, lpass.Password
+		login, pass, projectid, issuetype, endpoint = lpass.Login, lpass.Password, lpass.ProjectId, lpass.IssueType, lpass.Endpoint
 	}
 
-	jiraClient, err = jira.NewClient(nil, "https://zendesk.atlassian.net")
+	jiraClient, err = jira.NewClient(nil, endpoint)
 	handle_error(err)
 
 	res, err := jiraClient.Authentication.AcquireSessionCookie(login, pass)
 	if err != nil || res == false {
 		panic(err)
 	}
-	return jiraClient, login
+	return jiraClient, login, projectid, issuetype, endpoint
 }
 
-func createTicket(jiraClient *jira.Client, login string, desc string, summary string) string {
+func printTicketOutput(issue *jira.Issue, endpoint string) {
+	fmt.Printf("We created succesfully issue: %s\n", issue.Key)
+	issue_url := fmt.Sprintf("%s/browse/%s", endpoint, issue.Key)
+	if runtime.GOOS == "darwin" {
+		app := "/usr/bin/open"
+		cmd := exec.Command(app, issue_url)
+		_, err := cmd.Output()
+		handle_error(err)
+	}
+}
+
+func createTicket(jiraClient *jira.Client, login, desc, summary, issuetype, project, endpoint string) string {
 	i := jira.Issue{
 		Fields: &jira.IssueFields{
 			Assignee: &jira.User{
@@ -111,17 +139,17 @@ func createTicket(jiraClient *jira.Client, login string, desc string, summary st
 			},
 			Description: desc,
 			Type: jira.IssueType{
-				ID: "6",
+				ID: issuetype,
 			},
 			Project: jira.Project{
-				ID: "11000",
+				ID: project,
 			},
 			Summary: summary,
 		},
 	}
 	issue, _, err := jiraClient.Issue.Create(&i)
-	fmt.Printf("issue = %+v\n", issue)
 	handle_error(err)
+	printTicketOutput(issue, endpoint)
 	return issue.Key
 }
 
@@ -139,24 +167,24 @@ func jiraSearch(jiraClient *jira.Client, jql string) {
 }
 
 func main() {
-	jiraClient, login := jiraAuth()
+	jiraClient, login, projectid, issuetype, endpoint := jiraAuth()
 	switch kingpin.MustParse(app.Parse(os.Args[1:])) {
 	case weekly.FullCommand():
-		search_string := "(assignee = mmukhtarov) AND updatedDate > startOfWeek() ORDER BY updatedDate ASC"
+		search_string := fmt.Sprintf("(assignee = %s) AND updatedDate > startOfWeek() ORDER BY updatedDate ASC", login)
 		jiraSearch(jiraClient, search_string)
 	case allTickets.FullCommand():
-		search_string := "(assignee = mmukhtarov) AND (status = Open OR status = Reopened OR status = 'In Progress' OR status = 'TO DO LATER' OR status = 'Backlog')"
+		search_string := fmt.Sprintf("(assignee = %s) AND (status = Open OR status = Reopened OR status = 'In Progress' OR status = 'TO DO LATER' OR status = 'Backlog')", login)
 		jiraSearch(jiraClient, search_string)
 	case todoLater.FullCommand():
-		search_string := "(assignee = mmukhtarov) AND status = 'TO DO LATER'"
+		search_string := fmt.Sprintf("(assignee = %s) AND status = 'TO DO LATER'", login)
 		jiraSearch(jiraClient, search_string)
 	case backLog.FullCommand():
-		search_string := "(assignee = mmukhtarov) AND status = 'Backlog'"
+		search_string := fmt.Sprintf("(assignee = %s) AND status = 'Backlog'", login)
 		jiraSearch(jiraClient, search_string)
 	case inProgress.FullCommand():
-		search_string := "(assignee = mmukhtarov) AND status = 'In Progress'"
+		search_string := fmt.Sprintf("(assignee = %s) AND status = 'In Progress'", login)
 		jiraSearch(jiraClient, search_string)
 	case ticket.FullCommand():
-		createTicket(jiraClient, login, *ticketDesc, *ticketSum)
+		createTicket(jiraClient, login, *ticketDesc, *ticketSum, issuetype, projectid, endpoint)
 	}
 }
