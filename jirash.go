@@ -21,10 +21,12 @@ var (
 	weekly     = app.Command("weekly", "Weekly report")
 	allTickets = app.Command("all", "All tickets")
 	todoLater  = app.Command("todo", "To Do later tickets")
+	backLog    = app.Command("backlog", "Backlogs")
 	inProgress = app.Command("inprogress", "In progress tickets")
 
-	ticket    = app.Command("create", "Create a ticket")
-	ticketSum = ticket.Arg("summary", "Summary of the ticket").Required().String()
+	ticket     = app.Command("create", "Create a ticket")
+	ticketSum  = ticket.Arg("summary", "Summary of the ticket").Required().String()
+	ticketDesc = ticket.Arg("desc", "Decription of the ticket").Required().String()
 )
 
 type Creds struct {
@@ -80,10 +82,10 @@ func getCreds() (c Creds) {
 	return c
 }
 
-func jiraAuth() (jiraClient *jira.Client) {
+func jiraAuth() (jiraClient *jira.Client, login string) {
 	usr, err := user.Current()
 	config := string(usr.HomeDir) + "/.jirashell.json"
-	var login, pass string
+	var pass string
 	if _, err := os.Stat(config); os.IsNotExist(err) {
 		login, pass = writeCreds()
 	} else {
@@ -96,10 +98,31 @@ func jiraAuth() (jiraClient *jira.Client) {
 
 	res, err := jiraClient.Authentication.AcquireSessionCookie(login, pass)
 	if err != nil || res == false {
-		fmt.Printf("Result: %v\n", res)
 		panic(err)
 	}
-	return jiraClient
+	return jiraClient, login
+}
+
+func createTicket(jiraClient *jira.Client, login string, desc string, summary string) string {
+	i := jira.Issue{
+		Fields: &jira.IssueFields{
+			Assignee: &jira.User{
+				Name: login,
+			},
+			Description: desc,
+			Type: jira.IssueType{
+				ID: "6",
+			},
+			Project: jira.Project{
+				ID: "11000",
+			},
+			Summary: summary,
+		},
+	}
+	issue, _, err := jiraClient.Issue.Create(&i)
+	fmt.Printf("issue = %+v\n", issue)
+	handle_error(err)
+	return issue.Key
 }
 
 func jiraSearch(jiraClient *jira.Client, jql string) {
@@ -116,19 +139,24 @@ func jiraSearch(jiraClient *jira.Client, jql string) {
 }
 
 func main() {
-	jiraClient := jiraAuth()
+	jiraClient, login := jiraAuth()
 	switch kingpin.MustParse(app.Parse(os.Args[1:])) {
 	case weekly.FullCommand():
 		search_string := "(assignee = mmukhtarov) AND updatedDate > startOfWeek() ORDER BY updatedDate ASC"
 		jiraSearch(jiraClient, search_string)
 	case allTickets.FullCommand():
-		search_string := "(assignee = mmukhtarov) AND (status = Open OR status = Reopened OR status = 'In Progress' OR status = 'TO DO LATER')"
+		search_string := "(assignee = mmukhtarov) AND (status = Open OR status = Reopened OR status = 'In Progress' OR status = 'TO DO LATER' OR status = 'Backlog')"
 		jiraSearch(jiraClient, search_string)
 	case todoLater.FullCommand():
 		search_string := "(assignee = mmukhtarov) AND status = 'TO DO LATER'"
 		jiraSearch(jiraClient, search_string)
+	case backLog.FullCommand():
+		search_string := "(assignee = mmukhtarov) AND status = 'Backlog'"
+		jiraSearch(jiraClient, search_string)
 	case inProgress.FullCommand():
 		search_string := "(assignee = mmukhtarov) AND status = 'In Progress'"
 		jiraSearch(jiraClient, search_string)
+	case ticket.FullCommand():
+		createTicket(jiraClient, login, *ticketDesc, *ticketSum)
 	}
 }
