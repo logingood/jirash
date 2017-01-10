@@ -90,7 +90,7 @@ func writeCreds() (login, pass, projectid, issuetype, endpoint string) {
 	handle_error(err)
 
 	config := string(usr.HomeDir) + "/.jirashell.json"
-	err = ioutil.WriteFile(config, b, 0644)
+	err = ioutil.WriteFile(config, b, 0600)
 	handle_error(err)
 
 	return login, pass, projectid, issuetype, endpoint
