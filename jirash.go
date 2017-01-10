@@ -28,6 +28,9 @@ var (
 	ticket     = app.Command("create", "Create a ticket")
 	ticketSum  = ticket.Arg("summary", "Summary of the ticket").Required().String()
 	ticketDesc = ticket.Arg("desc", "Decription of the ticket").Required().String()
+
+	ticketClose = app.Command("close", "Mark ticket as done")
+	ticketNum   = ticketClose.Arg("ticketnum", "Number of ticket to mark as done").Required().String()
 )
 
 type Creds struct {
@@ -153,6 +156,14 @@ func createTicket(jiraClient *jira.Client, login, desc, summary, issuetype, proj
 	return issue.Key
 }
 
+func closeTicket(jiraClient *jira.Client, login, ticketnum, issuetype, project, endpoint string) {
+	tr, _, _ := jiraClient.Issue.GetTransitions("OP-25793")
+	issue, err := jiraClient.Issue.DoTransition("OP-25793", "{\"update\": { \"comment\": [ { \"add\": { \"body\": \"test33333\" } } ] }, \"fields\": { \"assignee\": { \"name\": \"mmukhtarov\" }, \"resolution\": { \"name\": \"Done\" }}, \"transition\": { \"id\": \"821\" } }")
+	fmt.Printf("fmt = %+v", tr)
+	fmt.Printf("err = %+v", err)
+	fmt.Printf("issue = %+v", issue)
+}
+
 func jiraSearch(jiraClient *jira.Client, jql string) {
 	search_opts := &jira.SearchOptions{
 		StartAt:    0,
@@ -186,5 +197,7 @@ func main() {
 		jiraSearch(jiraClient, search_string)
 	case ticket.FullCommand():
 		createTicket(jiraClient, login, *ticketDesc, *ticketSum, issuetype, projectid, endpoint)
+	case ticketClose.FullCommand():
+		closeTicket(jiraClient, login, *ticketNum, issuetype, projectid, endpoint)
 	}
 }
