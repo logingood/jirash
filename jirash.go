@@ -23,7 +23,7 @@ var (
 	allTickets = app.Command("all", "All tickets")
 	todoLater  = app.Command("todo", "To Do later tickets")
 	backLog    = app.Command("backlog", "Backlogs")
-	inProgress = app.Command("inprogress", "In progress tickets")
+	inProgress = app.Command("getinprogress", "In progress tickets")
 
 	ticket     = app.Command("create", "Create a ticket")
 	ticketSum  = ticket.Arg("summary", "Summary of the ticket").Required().String()
@@ -31,6 +31,9 @@ var (
 
 	ticketClose = app.Command("close", "Mark ticket as done")
 	ticketNum   = ticketClose.Arg("ticketnum", "Number of ticket to mark as done").Required().String()
+
+	ticketInProgress = app.Command("inprogress", "Mark ticket as in Progress")
+	ticketNum_P      = ticketInProgress.Arg("ticketnum", "Number of ticket to mark as in progress").Required().String()
 )
 
 type Creds struct {
@@ -156,12 +159,29 @@ func createTicket(jiraClient *jira.Client, login, desc, summary, issuetype, proj
 	return issue.Key
 }
 
-func closeTicket(jiraClient *jira.Client, login, ticketnum, issuetype, project, endpoint string) {
-	tr, _, _ := jiraClient.Issue.GetTransitions("OP-25793")
-	issue, err := jiraClient.Issue.DoTransition("OP-25793", "{\"update\": { \"comment\": [ { \"add\": { \"body\": \"test33333\" } } ] }, \"fields\": { \"assignee\": { \"name\": \"mmukhtarov\" }, \"resolution\": { \"name\": \"Done\" }}, \"transition\": { \"id\": \"821\" } }")
-	fmt.Printf("fmt = %+v", tr)
-	fmt.Printf("err = %+v", err)
-	fmt.Printf("issue = %+v", issue)
+func inProgressTicket(jiraClient *jira.Client, ticketnum string) {
+	// 821 - In Progress hardcoded by this time
+	getTransitions(jiraClient, ticketnum)
+	_, err := jiraClient.Issue.DoTransition(ticketnum, "821")
+	handle_error(err)
+	fmt.Printf("Ticket number %s marked as in progress\n", ticketnum)
+}
+
+func closeTicket(jiraClient *jira.Client, ticketnum string) {
+	// 811 - Mark as resolved
+	tr := getTransitions(jiraClient, ticketnum)
+	if len(tr) == 1 {
+		inProgressTicket(jiraClient, ticketnum)
+	}
+	_, err := jiraClient.Issue.DoTransition(ticketnum, "811")
+	handle_error(err)
+	fmt.Printf("Ticket number %s succesfully closed\n", ticketnum)
+}
+
+func getTransitions(jiraClient *jira.Client, ticketnum string) []jira.Transition {
+	tr, _, err := jiraClient.Issue.GetTransitions(ticketnum)
+	handle_error(err)
+	return tr
 }
 
 func jiraSearch(jiraClient *jira.Client, jql string) {
@@ -198,6 +218,8 @@ func main() {
 	case ticket.FullCommand():
 		createTicket(jiraClient, login, *ticketDesc, *ticketSum, issuetype, projectid, endpoint)
 	case ticketClose.FullCommand():
-		closeTicket(jiraClient, login, *ticketNum, issuetype, projectid, endpoint)
+		closeTicket(jiraClient, *ticketNum)
+	case ticketInProgress.FullCommand():
+		inProgressTicket(jiraClient, *ticketNum_P)
 	}
 }
