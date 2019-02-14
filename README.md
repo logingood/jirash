@@ -1,8 +1,7 @@
 # Jira Shell
 ## Overview
 
-Allows to query jira for tickets assigned to user:
-
+Allows to query Jira for tickets assigned to user:
 - all
 - todo 
 - backlog
@@ -21,47 +20,46 @@ First run jirash will ask you to add username, password, projectId and issue typ
 
 Use go get:
 ````
-go get github.com/murat1985/jirash
+go get github.com/logingood/jirash
 ````
-package would be installed into your $GOBIN path, e.g.: 
+package will be installed into your $GOBIN path, e.g.: 
 ```
 /usr/local/go/bin
 ```
 
 ## Configuration 
+
 Configuration would be automatically generated on first run and stored at
 ```
 ~/.jirashell.json
 ```
-Bare in mind your password from JIRA there is in clear text, if it is not acceptable for you
-don't use this script.
 
+Note: your password from Jira is stored in clear text. If it is not acceptable for you
+don't use this script.
 
 ## Example of usage:
 
-Get all tickets related to username
+Get all tickets for a user
 ```
 jirash all
 ```
 
-Create a JIRA issue
+Create a new issue
 ```
 jirash create "Test issue" "Test issue description"
 ```
 
 Mark issue as in progress
-
 ```
 jirash inprogress "ISSUE-123"
 ```
 
 Resolve issue
-
 ```
 jirash close "ISSUE-123"
 ```
 
-For OS X (Darwin) browser window with issue would be opened for you.
+For macOS (Darwin) browser window with issue would be opened for you.
 
 ## TODO
 
